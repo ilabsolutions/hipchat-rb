@@ -88,7 +88,7 @@ Capistrano::Configuration.instance(:must_exist).load do
     def deployment_name
       if fetch(:branch, nil)
         name = "#{application}/#{branch}"
-        name += " (revision #{real_revision[0..7]})" if real_revision
+        name += " #{formatted_revision(real_revision[0..7])}" if real_revision
         name
       else
         application
@@ -109,6 +109,10 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     def message_notification
       fetch(:hipchat_announce, false)
+    end
+
+    def formatted_revision(revision)
+      fetch(:hipchat_revision_format, '(revision %{revision})') % {revision: revision}
     end
 
     def message_format
