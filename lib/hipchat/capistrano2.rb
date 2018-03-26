@@ -3,6 +3,8 @@ require 'hipchat'
 Capistrano::Configuration.instance(:must_exist).load do
   set :hipchat_send_notification, false
   set :hipchat_with_migrations, ''
+  set :hipchat_give_opportunity_to_cancel, false
+  set :hipchat_cancellation_window, 300 # in seconds
 
   namespace :hipchat do
     task :trigger_notification do
@@ -26,7 +28,11 @@ Capistrano::Configuration.instance(:must_exist).load do
           send("#{human} cancelled deployment of #{deployment_name} to #{environment_string}.", send_options)
         end
 
-        send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}.", send_options)
+        if hipchat_give_opportunity_to_cancel
+          wait_for_hipchat_cancellation
+        else
+          send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}.", send_options)
+        end
       end
     end
 
@@ -62,14 +68,6 @@ Capistrano::Configuration.instance(:must_exist).load do
 
       hipchat_options = fetch(:hipchat_options, {})
       set :hipchat_client, HipChat::Client.new(hipchat_token, hipchat_options) if fetch(:hipchat_client, nil).nil?
-
-      if hipchat_room_name.is_a?(String)
-        rooms = [hipchat_room_name]
-      elsif hipchat_room_name.is_a?(Symbol)
-        rooms = [hipchat_room_name.to_s]
-      else
-        rooms = hipchat_room_name
-      end
 
       rooms.each { |room|
         begin
@@ -141,6 +139,49 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     def commit_log_line_separator
       message_format == "html" ? "<br/>" : "\n"
+    end
+
+    def rooms
+      return [hipchat_room_name] if hipchat_room_name.is_a?(String)
+      return [hipchat_room_name.to_s] if hipchat_room_name.is_a?(Symbol)
+
+      hipchat_room_name
+    end
+
+    def history(room)
+      JSON.parse(hipchat_client[room].history())
+    end
+
+    def is_cancellation_message?(m)
+      m['message'].include?('cancel deploy')
+    end
+
+    def is_deploy_message?(m)
+      m['from'].include?('Deploy')
+    end
+
+    def found_cancellation_message?(room)
+      messages_with_recent_first = history(room)['items'].reverse
+
+      messages_with_recent_first.each do |m|
+        return false if is_deploy_message?(m) # don't go back any further
+        return true if is_cancellation_message?(m)
+      end
+
+      false
+    end
+
+    def wait_for_hipchat_cancellation
+      send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing 'cancel deploy' to cancel.  Otherwise, the deploy will proceed in 5 minutes.", send_options.merge(notify: true))
+      puts "Allowing #{hipchat_cancellation_window} seconds for users to cancel deploy via HipChat message."
+
+      hipchat_cancellation_window.times do
+        sleep(1)
+        raise 'Cancelling deploy based on HipChat message' if rooms.any? { |room| found_cancellation_message?(room) }
+      end
+
+      send("Proceeding with deploy.", send_options)
+      puts 'No HipChat message - proceeding with deploy.'
     end
   end
 
