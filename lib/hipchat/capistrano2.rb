@@ -17,12 +17,6 @@ Capistrano::Configuration.instance(:must_exist).load do
 
     task :notify_deploy_started do
       if hipchat_send_notification
-
-        environment_string = env
-        if self.respond_to?(:stage)
-          environment_string = "#{stage} (#{env})"
-        end
-
         on_rollback do
           send_options.merge!(:color => failed_message_color)
           send("#{human} cancelled deployment of #{deployment_name} to #{environment_string}.", send_options)
@@ -39,11 +33,6 @@ Capistrano::Configuration.instance(:must_exist).load do
     task :notify_deploy_finished do
       if hipchat_send_notification
         send_options.merge!(:color => success_message_color)
-
-        environment_string = env
-        if self.respond_to?(:stage)
-          environment_string = "#{stage} (#{env})"
-        end
 
         if fetch(:hipchat_commit_log, false)
           logs = commit_logs
@@ -169,6 +158,10 @@ Capistrano::Configuration.instance(:must_exist).load do
       end
 
       false
+    end
+
+    def environment_string
+      self.respond_to?(:stage) ? "#{stage} (#{env})" : env
     end
 
     def wait_for_hipchat_cancellation
