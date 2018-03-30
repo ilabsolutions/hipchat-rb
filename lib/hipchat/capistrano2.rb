@@ -1,5 +1,9 @@
 require 'hipchat'
 
+# HipChat has rate limits (500 API request per 5 minutes), so make sure we don't make too many requests here, especially
+# as we may use the same API token across multiple branches that could deploy at once
+SLEEP_TIME = 10
+
 Capistrano::Configuration.instance(:must_exist).load do
   set :hipchat_send_notification, false
   set :hipchat_with_migrations, ''
@@ -165,12 +169,8 @@ Capistrano::Configuration.instance(:must_exist).load do
     end
 
     def wait_for_hipchat_cancellation
-      send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing 'cancel deploy' to cancel.  Otherwise, the deploy will proceed in 5 minutes.", send_options.merge(notify: true))
+      send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing 'cancel deploy' to cancel.  Otherwise, the deploy will proceed in #{hipchat_cancellation_window} seconds.", send_options.merge(notify: true))
       puts "Allowing #{hipchat_cancellation_window} seconds for users to cancel deploy via HipChat message."
-
-      # HipChat has rate limits (500 API request per 5 minutes), so make sure we don't make too many requests here, especially
-      # as we may use the same API token across multiple branches that could deploy at once
-      SLEEP_TIME = 10
 
       (hipchat_cancellation_window / SLEEP_TIME).times do
         sleep(SLEEP_TIME)
