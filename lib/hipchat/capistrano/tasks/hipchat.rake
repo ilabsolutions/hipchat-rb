@@ -1,9 +1,17 @@
 require 'hipchat'
 
+# HipChat has rate limits (500 API request per 5 minutes), so make sure we don't make too many requests here, especially
+# as we may use the same API token across multiple branches that could deploy at once
+SLEEP_TIME = 10
+
 namespace :hipchat do
 
   task :notify_deploy_started do
-    send_message("#{human} is deploying #{deployment_name} to #{environment_string}.", send_options)
+    if give_opportunity_to_cancel?
+      wait_for_hipchat_cancellation
+    else
+      send_message("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}.", send_options)
+    end
   end
 
   task :notify_deploy_finished do
@@ -27,20 +35,6 @@ namespace :hipchat do
   def send_message(message, options)
     return unless enabled?
 
-    hipchat_token = fetch(:hipchat_token)
-    hipchat_room_name = fetch(:hipchat_room_name)
-    hipchat_options = fetch(:hipchat_options, {})
-
-    hipchat_client = fetch(:hipchat_client, HipChat::Client.new(hipchat_token, hipchat_options))
-
-    if hipchat_room_name.is_a?(String)
-      rooms = [hipchat_room_name]
-    elsif hipchat_room_name.is_a?(Symbol)
-      rooms = [hipchat_room_name.to_s]
-    else
-      rooms = hipchat_room_name
-    end
-
     rooms.each { |room|
       begin
         hipchat_client[room].send(deploy_user, message, options)
@@ -49,6 +43,13 @@ namespace :hipchat do
         puts e.backtrace
       end
     }
+  end
+
+  def hipchat_client
+    hipchat_token = fetch(:hipchat_token)
+    hipchat_options = fetch(:hipchat_options, {})
+
+    @hipchat_client ||= fetch(:hipchat_client, HipChat::Client.new(hipchat_token, hipchat_options))
   end
 
   def enabled?
@@ -69,11 +70,15 @@ namespace :hipchat do
       real_revision = fetch(:real_revision)
 
       name = "#{application_name}/#{branch}"
-      name += " (revision #{real_revision[0..7]})" if real_revision
+      name += " #{formatted_revision(real_revision[0..7])}" if real_revision
       name
     else
       application_name
     end
+  end
+
+  def formatted_revision(revision)
+    fetch(:hipchat_revision_format, '(revision %{revision})') % {revision: revision}
   end
 
   def application_name
@@ -128,6 +133,63 @@ namespace :hipchat do
   after 'deploy:finished', 'hipchat:notify_deploy_finished'
   if Rake::Task.task_defined? 'deploy:failed'
     after 'deploy:failed', 'hipchat:notify_deploy_reverted'
+  end
+
+  def rooms
+    hipchat_room_name = fetch(:hipchat_room_name)
+
+    return [hipchat_room_name] if hipchat_room_name.is_a?(String)
+    return [hipchat_room_name.to_s] if hipchat_room_name.is_a?(Symbol)
+
+    hipchat_room_name
+  end
+
+  def history(room)
+    JSON.parse(hipchat_client[room].history())
+  end
+
+  def cancellation_message
+    branch = deployment_name.split('/').last
+    "cancel #{branch} deploy"
+  end
+
+  def is_deploy_message?(m)
+    m['from'].include?('Deploy')
+  end
+
+  def found_cancellation_message?(room)
+    messages_with_recent_first = history(room)['items'].reverse
+
+    messages_with_recent_first.each do |m|
+      return false if is_deploy_message?(m) # don't go back any further
+      return true if m['message'].include?(cancellation_message)
+    end
+
+    false
+  end
+
+  def wait_for_hipchat_cancellation
+    send_message("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing '#{cancellation_message}'' to cancel.  Otherwise, the deploy will proceed in #{cancellation_window} seconds.", send_options.merge(notify: true))
+    puts "Allowing #{cancellation_window} seconds for users to cancel deploy via HipChat message."
+
+    (cancellation_window / SLEEP_TIME).times do
+      sleep(SLEEP_TIME)
+      if rooms.any? { |room| found_cancellation_message?(room) }
+        send_message("Cancelling deploy.", send_options)
+        raise 'Cancelling deploy based on HipChat message'
+      end
+    end
+
+    send_message("Proceeding with deploy.", send_options)
+    puts 'No HipChat message - proceeding with deploy.'
+  end
+
+  def give_opportunity_to_cancel?
+    fetch(:hipchat_give_opportunity_to_cancel, false)
+  end
+
+  def cancellation_window
+    fetch(:hipchat_cancellation_window, 180)
   end
 
 end
