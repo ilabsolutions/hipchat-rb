@@ -169,7 +169,7 @@ namespace :hipchat do
   end
 
   def wait_for_hipchat_cancellation
-    send_message("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing '#{cancellation_message}'' to cancel.  Otherwise, the deploy will proceed in #{cancellation_window} seconds.", send_options.merge(notify: true))
+    send_message("@here #{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing '#{cancellation_message}'' to cancel.  Otherwise, the deploy will proceed in #{cancellation_window} seconds.", send_options.merge(notify: true))
     puts "Allowing #{cancellation_window} seconds for users to cancel deploy via HipChat message."
 
     (cancellation_window / SLEEP_TIME).times do
@@ -180,7 +180,7 @@ namespace :hipchat do
       end
     end
 
-    send_message("Proceeding with deploy.", send_options)
+    send_message("Proceeding with deploy of #{deployment_name}.", send_options)
     puts 'No HipChat message - proceeding with deploy.'
   end
 
