@@ -167,7 +167,7 @@ Capistrano::Configuration.instance(:must_exist).load do
     end
 
     def wait_for_hipchat_cancellation
-      send("#{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing 'cancel deploy' to cancel.  Otherwise, the deploy will proceed in #{cancellation_window} seconds.", send_options.merge(notify: true))
+      send("@here #{human} is deploying #{deployment_name} to #{environment_string}#{fetch(:hipchat_with_migrations, '')}. Reply with a message containing 'cancel deploy' to cancel.  Otherwise, the deploy will proceed in #{cancellation_window} seconds.", send_options.merge(notify: true))
       puts "Allowing #{cancellation_window} seconds for users to cancel deploy via HipChat message."
 
       (cancellation_window / SLEEP_TIME).times do
@@ -178,7 +178,7 @@ Capistrano::Configuration.instance(:must_exist).load do
         end
       end
 
-      send("Proceeding with deploy.", send_options)
+      send("Proceeding with deploy of #{deployment_name}.", send_options)
       puts 'No HipChat message - proceeding with deploy.'
     end
 
